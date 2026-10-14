@@ -1,0 +1,102 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.2'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.ccm.common'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.16'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	implementation 'io.jsonwebtoken:jjwt:0.9.1'
+	compileOnly 'org.projectlombok:lombok'
+	runtimeOnly 'org.postgresql:postgresql'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+	implementation 'javax.xml.bind:jaxb-api:2.3.1'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+tasks.jar {
+	archiveFileName='ccmCommon.jar'
+}
+
+// Task to create the ccmCommon JAR
+task ccmCommonJar(type: Jar) {
+	archiveFileName = 'ccmCommon.jar'
+	destinationDirectory = layout.buildDirectory.dir("libs")
+	from sourceSets.main.output
+}
+
+// Task to copy the ccmCommon JAR in all the Microservices
+task copyCommonJarToAllMicroservices {
+	group = "other"
+	description = "Copies ccmCommon.jar to all microservices"
+
+	// Ensuring the ccmCommon JAR to be build first
+	dependsOn ccmCommonJar
+
+	// List of Microservices folder names
+	def microservices = [
+			'CCM-Client',
+			'CCM-Customer',
+			'CCM-Security'
+	]
+
+	doLast {
+		// Access the JAR file created by the ccmCommonJar task
+		def sourceFile = layout.buildDirectory.file("libs/ccmCommon.jar").get().asFile
+
+		if (!sourceFile.exists()) {
+			throw new GradleException("Source JAR not found at ${sourceFile.path}")
+		}
+
+		microservices.each { service ->
+			// Use projectDir.parent to dynamically find sibling folders
+			def targetDir = file("${projectDir.parent}/${service}/ccmCommonJar")
+			def targetFile = file("${targetDir.path}/ccmCommon.jar")
+
+			// Ensure the destination folder exists
+			if (!targetDir.exists()) {
+				targetDir.mkdirs()
+			}
+
+			try {
+				// Use Java NIO for a forced overwrite
+				java.nio.file.Files.copy(
+						sourceFile.toPath(),
+						targetFile.toPath(),
+						java.nio.file.StandardCopyOption.REPLACE_EXISTING
+				)
+				println "Successfully replaced: ${targetFile.path}"
+			} catch (Exception e) {
+				println "FAILED to copy to ${service}: ${e.message}"
+				println "Check if the microservice is running and locking the file."
+			}
+		}
+	}
+}
